@@ -8,20 +8,14 @@
 double fillArr(double* arr, size_t len)
 {
     double step = 3.1415 * 2 / MAX_SIZE;
-    double phi = 0;
+    double phi = 0.0, sum = 0.0;
 
     #pragma acc parallel loop
     for(size_t i = 0; i < len; i++)
     {
         arr[i] = sin(phi);
         phi += step;
-    }
-
-    double sum = 0.0;
-    #pragma acc parallel loop reduction(+:sum)
-    for(size_t i = 0; i < len; i++)
-    {
-      sum += arr[i];
+	    sum += arr[i];
     }
 
     return sum;
