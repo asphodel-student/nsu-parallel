@@ -17,8 +17,8 @@ void fillArr(TYPE* arr, size_t len)
 {
     TYPE step = 3.141592653589 * 2.0 / MAX_SIZE;
     
-    #pragma acc data copyin(step)
-    #pragma acc parallel loop vector vector_length(128) gang, present(arr)
+    //#pragma acc data copyin(step)
+    #pragma acc parallel loop vector vector_length(128) gang num_gangs(1024) present(arr)
     for(size_t i = 0; i < len; i++)
     {
         arr[i] = sin(step * i);
@@ -30,7 +30,7 @@ TYPE sumArr(TYPE* arr, size_t len)
     TYPE sum = 0.0;
     
     #pragma acc data copy(sum)
-    #pragma acc parallel loop reduction(+:sum) present(arr)
+    #pragma acc parallel loop gang num_gangs(2048) reduction(+:sum) present(arr)
     for(size_t i = 0; i < len; i++)
     {
         sum += arr[i];
