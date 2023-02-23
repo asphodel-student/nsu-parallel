@@ -8,20 +8,21 @@
 #ifdef FLOAT_TYPE
 #define TYPE float
 #define FORMAT "%.23f"
+#define SIN sinf
 #else
 #define TYPE double
 #define FORMAT "%.23lf"
+#define SIN sin
 #endif
 
 void fillArr(TYPE* arr, size_t len)
 {
     TYPE step = 3.141592653589 * 2.0 / MAX_SIZE;
     
-    //#pragma acc data copyin(step)
     #pragma acc parallel loop vector vector_length(128) gang num_gangs(1024) present(arr)
     for(size_t i = 0; i < len; i++)
     {
-        arr[i] = sin(step * i);
+        arr[i] = SIN(step * i);
     }
 }
 
@@ -43,12 +44,11 @@ TYPE sumArr(TYPE* arr, size_t len)
 int main()
 {
     double time_spent = 0.0;
-    
+    clock_t begin = clock();
+
     TYPE* arr = (TYPE*)malloc(MAX_SIZE * sizeof(TYPE));
     #pragma acc data create(arr[0:MAX_SIZE])
     {
-    clock_t begin = clock();
-
     fillArr(arr, MAX_SIZE);
     printf("Sum = ");
     printf(FORMAT, sumArr(arr, MAX_SIZE));
