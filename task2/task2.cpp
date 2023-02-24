@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <cmath>
 
 #define NUM_OF_PARAM 4
 
@@ -19,7 +20,7 @@ int main(int argc, char** argv)
 
     // Проверки  ...
 
-    int maxError = std::stoi(argv[1]);
+    double minError = std::pow(10, -std::stoi(argv[1]));
     size_t gridSize = std::stoi(argv[2]);
     size_t numOfIter = std::stoi(argv[3]);
 
@@ -40,17 +41,17 @@ int main(int argc, char** argv)
     for(size_t i = 1; i < gridSize - 1; i++)
     {
         matrixA[i][0] = matrixA[0][i] = CORNER1 * step * i;
-        matrixA[k][gridSize - 1] = matrixA[gridSize - 1][i] = CORNER2 * step * i;
+        matrixA[i][gridSize - 1] = matrixA[gridSize - 1][i] = CORNER2 * step * i;
     }
 
-    int error = 0, iter = 0;
-    while(maxError > error and iter < numOfIter)
+    double error = 1; int iter = 0;
+    while(minError < error and iter < numOfIter)
     {
         for(size_t j = 1; j < gridSize - 1; j++)
         {
             for(size_t i = 1; i < gridSize - 1; i++)
             {
-                matrixB[i][j] = matrixA[i + 1][j] + matrixA[i - 1][j] + matrixA[i][j - 1] + matrixA[i][j + 1];
+                matrixB[i][j] = 0.25 * (matrixA[i + 1][j] + matrixA[i - 1][j] + matrixA[i][j - 1] + matrixA[i][j + 1]);
                 error = std::max(error, matrixB[i][j] - matrixA[i][j]);
             }
         }
