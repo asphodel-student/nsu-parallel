@@ -24,7 +24,7 @@ int main(int argc, char** argv)
 
     std::cout << "Min error " << minError << std::endl; 
    
-    size_t gridSize = std::pow(std::stoi(argv[2]), 2);
+    size_t gridSize = std::stoi(argv[2]);
     size_t numOfIter = std::stoi(argv[3]);
 
     std::cout << "Grid size: " << gridSize << std::endl;
@@ -52,20 +52,15 @@ int main(int argc, char** argv)
     // Writing a boundary condition
     for(size_t i = 1; i < gridSize - 1; i++)
     {
-        matrixA[0][i] = step1 * i;
-	matrixA[i][0] = step2 * i;
-	matrixA[gridSize - 1][i] = step4 * i;
-        matrixA[i][gridSize - 1] =  step3 * i;
+        matrixA[0][i] = matrixB[0][i] = step1 * i;
+	matrixA[i][0] = matrixB[i][0] = step2 * i;
+	matrixA[gridSize - 1][i] = matrixB[gridSize - 1][i] = step4 * i;
+        matrixA[i][gridSize - 1] = matrixB[i][gridSize - 1] = step3 * i;
     }
-
-    //for (size_t i = 0; i < gridSize; i++)
-//	    std::cout << matrixA[0][i] << std::endl;
 
     std::cout << "Start" << std::endl;
     // Main algorithm
-    
     double error = 1; int iter = 0;
-
     while(minError < error and iter < numOfIter)
     {
         for(size_t j = 1; j < gridSize - 1; j++)
@@ -77,7 +72,10 @@ int main(int argc, char** argv)
             }
         }
         iter++;
-	//std::cout << "Iteration: " << iter << std::endl;
+	double** temp = matrixA;
+	matrixA = matrixB;
+	matrixB = temp;
+	std::cout << "Iteration: " << iter << std::endl;
     }
 
     std::cout << iter << " " << error << std::endl;
