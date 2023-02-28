@@ -16,8 +16,9 @@ double matrixB[4096][4096] = { 0 };
 double computeArray(size_t gridSize, double error)
 {
     error = 0.0;
-
-    #pragma acc parallel loop vector vector_length(128) gang num_gangs(128)
+#pragma acc data copy(error)
+    #pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) reduction(max:error) \
+	present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize]) 
     for (size_t i = 1; i < gridSize - 1; i++)
     {
         for (size_t j = 1; j < gridSize - 1; j++)
@@ -32,6 +33,8 @@ double computeArray(size_t gridSize, double error)
 
 void updateArrays(size_t gridSize)
 {
+#pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) \
+	present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize])
     for (size_t i = 1; i < gridSize; i++)
     {
         for (size_t j = 0; j < gridSize; j++)
@@ -84,8 +87,11 @@ int main(int argc, char** argv)
 
     clock_t initBegin = clock();
 
-    // Writing a boundary condition  
-#pragma acc parallel loop vector vector_length(128) gang num_gangs(128)
+    // Writing a boundary condition
+      
+#pragma acc data copyin (matrixB[0:gridSize][0:gridSize]), copyin (matrixA[0:gridSize][0:gridSize]) 
+    {
+#pragma acc parallel loop seq gang num_gangs(256) vector vector_length(256)
     for (size_t i = 1; i < gridSize - 1; i++)
     {
         matrixA[0][i] = matrixB[0][i] = CORNER1 + step1 * i;
@@ -99,25 +105,20 @@ int main(int argc, char** argv)
 
     clock_t algBegin = clock();
 
-#pragma acc data create (matrixA[0:gridSize][0:gridSize]) 
-#pragma acc data create (matrixB[0:gridSize][0:gridSize])
+    // Main algorithm
+    std::cout << "-----------Start-----------" << std::endl;
+    double error = 1.0; int iter = 0;
+    while (minError < error && iter < numOfIter)
     {
-        // Main algorithm
-        std::cout << "-----------Start-----------" << std::endl;
-        double error = 1.0; int iter = 0;
-        while (minError < error && iter < numOfIter)
-        {
-            error = computeArray(gridSize, error);
-            iter++;
+        error = computeArray(gridSize, error);
+        iter++;
+        updateArrays(gridSize);
+    }
 
-#pragma acc parallel loop vector vector_length(1024) gang num_gangs(128)
-            updateArrays(gridSize);
-        }
+    clock_t algEnd = clock();
 
-        clock_t algEnd = clock();
-
-        std::cout << "Number of iteration: " << iter << ", error:  " << error << std::endl;
-        std::cout << "Time of computation: " << 1.0 * (algEnd - algBegin) / CLOCKS_PER_SEC << std::endl;
+    std::cout << "Number of iteration: " << iter << ", error:  " << error << std::endl;
+    std::cout << "Time of computation: " << 1.0 * (algEnd - algBegin) / CLOCKS_PER_SEC << std::endl;
     }
     // Free memory
    // for (size_t i = 0; i < gridSize; i++)
