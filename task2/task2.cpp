@@ -1,5 +1,5 @@
 #include <iostream>
-#include <string>
+#include <cstring>
 #include <cmath>
 #include <ctime>
 
@@ -15,8 +15,8 @@ double matrixB[4096][4096] = { 0 };
 
 double computeArray(size_t gridSize, double error)
 {
-    error = 0.0;
-#pragma acc data copy(error)
+   error = 0.0;
+
     #pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) reduction(max:error) \
 	present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize]) 
     for (size_t i = 1; i < gridSize - 1; i++)
@@ -33,7 +33,7 @@ double computeArray(size_t gridSize, double error)
 
 void updateArrays(size_t gridSize)
 {
-#pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) \
+    #pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) \
 	present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize])
     for (size_t i = 1; i < gridSize; i++)
     {
@@ -63,18 +63,7 @@ int main(int argc, char** argv)
     std::cout << "Grid size: " << gridSize << std::endl;
     std::cout << "Max number of iteration: " << numOfIter << std::endl;
 
-    /*    // Allocate two 2D arrays
-        double** matrixA = new double* [gridSize];
-        double** matrixB = new double* [gridSize];
-        //#pragma acc kernels
-        for (size_t i = 0; i < gridSize; i++)
-        {
-            matrixA[i] = new double[gridSize];
-            matrixB[i] = new double[gridSize];
-            memset(matrixA[i], 0, sizeof(double) * gridSize);
-            memset(matrixB[i], 0, sizeof(double) * gridSize);
-        }
-    */
+    // Adding a boundary conditions
     matrixA[0][0] = matrixB[0][0] = CORNER1;
     matrixA[0][gridSize - 1] = matrixB[0][gridSize - 1] = CORNER2;
     matrixA[gridSize - 1][0] = matrixB[gridSize - 1][0] = CORNER4;
@@ -86,12 +75,10 @@ int main(int argc, char** argv)
         step4 = 1.0 * (CORNER3 - CORNER4) / gridSize; //From (0, gridSize) to (gridSize, gridSize)
 
     clock_t initBegin = clock();
-
-    // Writing a boundary condition
       
-#pragma acc data copyin (matrixB[0:gridSize][0:gridSize]), copyin (matrixA[0:gridSize][0:gridSize]) 
+    #pragma acc data copy (matrixB[0:gridSize][0:gridSize]), copy (matrixA[0:gridSize][0:gridSize]) 
     {
-#pragma acc parallel loop seq gang num_gangs(256) vector vector_length(256)
+    #pragma acc parallel loop seq gang num_gangs(256) vector vector_length(256)
     for (size_t i = 1; i < gridSize - 1; i++)
     {
         matrixA[0][i] = matrixB[0][i] = CORNER1 + step1 * i;
@@ -104,6 +91,7 @@ int main(int argc, char** argv)
     std::cout << "Initialization time: " << 1.0 * (initEnd - initBegin) / CLOCKS_PER_SEC << std::endl;
 
     clock_t algBegin = clock();
+
 
     // Main algorithm
     std::cout << "-----------Start-----------" << std::endl;
@@ -120,13 +108,6 @@ int main(int argc, char** argv)
     std::cout << "Number of iteration: " << iter << ", error:  " << error << std::endl;
     std::cout << "Time of computation: " << 1.0 * (algEnd - algBegin) / CLOCKS_PER_SEC << std::endl;
     }
-    // Free memory
-   // for (size_t i = 0; i < gridSize; i++)
-    //{
-      //  delete[] matrixA[i];
-       // delete[] matrixB[i];
-   // }
-   // delete[] matrixA; delete[] matrixB;
-
+    
     return 0;
 }
