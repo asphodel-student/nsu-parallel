@@ -13,6 +13,7 @@
 double matrixA[4096][4096] = { 0 };
 double matrixB[4096][4096] = { 0 };
 
+// Function for computing the Poisson equation
 double computeArray(size_t gridSize, double error)
 {
    error = 0.0;
@@ -31,6 +32,7 @@ double computeArray(size_t gridSize, double error)
     return error;
 }
 
+// Function for array updating
 void updateArrays(size_t gridSize)
 {
     #pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) \
@@ -69,10 +71,7 @@ int main(int argc, char** argv)
     matrixA[gridSize - 1][0] = matrixB[gridSize - 1][0] = CORNER4;
     matrixA[gridSize - 1][gridSize - 1] = matrixB[gridSize - 1][gridSize - 1] = CORNER3;
 
-    double step1 = 1.0 * (CORNER2 - CORNER1) / gridSize, //From (0, 0) to (gridSize, 0)
-        step2 = 1.0 * (CORNER1 - CORNER4) / gridSize, //From (0, 0) to (0, gridSize) 
-        step3 = 1.0 * (CORNER2 - CORNER3) / gridSize, //From (gridSize, 0) to (gridSize, gridSize)
-        step4 = 1.0 * (CORNER3 - CORNER4) / gridSize; //From (0, gridSize) to (gridSize, gridSize)
+    double step = 1.0 * (CORNER2 - CORNER1) / gridSize;
 
     clock_t initBegin = clock();
       
@@ -81,10 +80,10 @@ int main(int argc, char** argv)
     #pragma acc parallel loop seq gang num_gangs(256) vector vector_length(256)
     for (size_t i = 1; i < gridSize - 1; i++)
     {
-        matrixA[0][i] = matrixB[0][i] = CORNER1 + step1 * i;
-        matrixA[i][0] = matrixB[i][0] = CORNER1 + step2 * i;
-        matrixA[gridSize - 1][i] = matrixB[gridSize - 1][i] = CORNER3 + step4 * i;
-        matrixA[i][gridSize - 1] = matrixB[i][gridSize - 1] = CORNER2 + step3 * i;
+        matrixA[0][i] = matrixB[0][i] = CORNER1 + step * i;
+        matrixA[i][0] = matrixB[i][0] = CORNER1 + step * i;
+        matrixA[gridSize - 1][i] = matrixB[gridSize - 1][i] = CORNER3 + step * i;
+        matrixA[i][gridSize - 1] = matrixB[i][gridSize - 1] = CORNER2 + step * i;
     }
 
     clock_t initEnd = clock();
