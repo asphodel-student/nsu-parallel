@@ -25,7 +25,7 @@ double computeArray(size_t gridSize, double error)
         for (size_t j = 1; j < gridSize - 1; j++)
         {
             matrixB[i][j] = 0.25 * (matrixA[i + 1][j] + matrixA[i - 1][j] + matrixA[i][j - 1] + matrixA[i][j + 1]);
-            error = fmax(error, matrixB[i][j] - matrixA[i][j]);
+            error = fmax(error, fabs(matrixB[i][j] - matrixA[i][j]));
         }
     }
 
@@ -56,10 +56,10 @@ int main(int argc, char** argv)
     }
 
     double minError = std::pow(10, -std::stoi(argv[1]));
-    size_t gridSize = std::stoi(argv[2]);
-    size_t numOfIter = std::stoi(argv[3]);
+    int gridSize = std::stoi(argv[2]);
+    int numOfIter = std::stoi(argv[3]);
 
-    if (gridSize < 128 || gridSize > 4096 || numOfIter < 0 || numOfIter > 10000000) return -1;
+    if (gridSize < 128 || gridSize > 4096 || numOfIter < 100 || numOfIter > 10000000) return -1;
 
     std::cout << "Min error " << minError << std::endl;
     std::cout << "Grid size: " << gridSize << std::endl;
@@ -98,8 +98,8 @@ int main(int argc, char** argv)
     while (minError < error && iter < numOfIter)
     {
         error = computeArray(gridSize, error);
-        iter++;
         updateArrays(gridSize);
+	iter++;
     }
 
     clock_t algEnd = clock();
