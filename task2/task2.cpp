@@ -14,12 +14,12 @@ double matrixA[4096][4096] = { 0 };
 double matrixB[4096][4096] = { 0 };
 
 // Function for computing the Poisson equation
-double computeArray(size_t gridSize, double error)
+inline double computeArray(size_t gridSize, double error)
 {
-   error = 0.0;
+    error = 0.0;
 
-    #pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) reduction(max:error) \
-	present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize]) 
+    #pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256) reduction(max:error) \
+    present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize])
     for (size_t i = 1; i < gridSize - 1; i++)
     {
         for (size_t j = 1; j < gridSize - 1; j++)
@@ -33,10 +33,10 @@ double computeArray(size_t gridSize, double error)
 }
 
 // Function for array updating
-void updateArrays(size_t gridSize)
+inline void updateArrays(size_t gridSize)
 {
-    #pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) \
-	present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize])
+   #pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) \
+   present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize]) 
     for (size_t i = 1; i < gridSize; i++)
     {
         for (size_t j = 0; j < gridSize; j++)
@@ -75,9 +75,9 @@ int main(int argc, char** argv)
 
     clock_t initBegin = clock();
       
-    #pragma acc data copy (matrixB[0:gridSize][0:gridSize]), copy (matrixA[0:gridSize][0:gridSize]) 
-    {
-    #pragma acc parallel loop seq gang num_gangs(256) vector vector_length(256)
+    
+    //#pragma acc data present (matrixB[0:gridSize][0:gridSize]) present (matrixA[0:gridSize][0:gridSize])  
+    #pragma acc parallel loop seq gang num_gangs(256) vector vector_length(256) 
     for (size_t i = 1; i < gridSize - 1; i++)
     {
         matrixA[0][i] = matrixB[0][i] = CORNER1 + step * i;
@@ -94,18 +94,23 @@ int main(int argc, char** argv)
 
     // Main algorithm
     std::cout << "-----------Start-----------" << std::endl;
+
+    //#pragma acc data present (matrixB[0:gridSize][0:gridSize]) present (matrixA[0:gridSize][0:gridSize])
+      
     double error = 1.0; int iter = 0;
+    #pragma acc data copyin (matrixB[0:gridSize][0:gridSize]) copyin (matrixA[0:gridSize][0:gridSize]) copy(error) 
+    {
     while (minError < error && iter < numOfIter)
     {
-        error = computeArray(gridSize, error);
-        updateArrays(gridSize);
 	iter++;
+        error = computeArray(gridSize, error);
+	updateArrays(gridSize);
     }
 
     clock_t algEnd = clock();
-
     std::cout << "Number of iteration: " << iter << ", error:  " << error << std::endl;
     std::cout << "Time of computation: " << 1.0 * (algEnd - algBegin) / CLOCKS_PER_SEC << std::endl;
+
     }
     
     return 0;
