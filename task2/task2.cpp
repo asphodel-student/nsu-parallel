@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
+#include <ctime>
 
 #define CORNER1 10
 #define CORNER2 20
@@ -50,6 +51,7 @@ int main(int argc, char** argv)
 
 	#pragma acc enter data copyin(matrixA[0:totalSize], matrixB[0:totalSize], error)
 	{
+	clock_t begin = clock();
 	while (error > minError && iter < maxIter)
 	{
 	        iter++;
@@ -79,14 +81,17 @@ int main(int argc, char** argv)
 	if(iter % 100 == 0)
 	{
 		#pragma acc update host(error) async(1)	
-		//#pragma acc wait(2)
 		#pragma acc wait(1)
 	}
 		double* temp = matrixA;
 		matrixA = matrixB;
 		matrixB = temp;
 	}
+	clock_t end = clock();
+	std::cout << "Time: " << 1.0 * (end - begin) / CLOCKS_PER_SEC << std::endl; 
 	}
+
+
 	std::cout << "Iter: " << iter << " Error: " << error << std::endl;
 
 	return 0;
