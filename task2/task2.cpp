@@ -46,18 +46,23 @@ int main(int argc, char** argv)
 	double error = 1.0;
 	int iter = 0;
 
-//#pragma acc data copyin (error)
-	//{
-	#pragma acc enter data copyin(matrixA[0:totalSize]) copyin(matrixB[0:totalSize], error)
+	std::cout << "Start: " << std::endl;
+
+	#pragma acc enter data copyin(matrixA[0:totalSize], matrixB[0:totalSize], error)
+	{
 	while (error > minError && iter < maxIter)
 	{
 	        iter++;
-#pragma acc kernels async(1)
+
+		if(iter % 100 == 0)
+		{
+		#pragma acc kernels async(1)
 		error = 0.0;
-#pragma acc update device(error) async(1)
+		#pragma acc update device(error) async(1)
+		}
 
 		#pragma acc data present(matrixA, matrixB, error)
-		#pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256) reduction(max:error) async
+		#pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256) reduction(max:error) async(1)
 		for (int i = 1; i < size - 1; i++)
 		{
 			for (int j = 1; j < size - 1; j++)
@@ -71,15 +76,18 @@ int main(int argc, char** argv)
 					error = fmax(error, matrixB[i * size + j] - matrixA[i * size + j]);
 			}
 		}
+	if(iter % 100 == 0)
+	{
 		#pragma acc update host(error) async(1)	
-
+		//#pragma acc wait(2)
 		#pragma acc wait(1)
+	}
 		double* temp = matrixA;
 		matrixA = matrixB;
 		matrixB = temp;
 	}
-
-	std::cout << "Iter: " << iter << " Error: " << error;
+	}
+	std::cout << "Iter: " << iter << " Error: " << error << std::endl;
 
 	return 0;
 }
