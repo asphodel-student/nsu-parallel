@@ -31,7 +31,7 @@ TYPE sumArr(TYPE* arr, size_t len)
     TYPE sum = 0.0;
     
     #pragma acc data copy(sum)
-    #pragma acc parallel loop gang num_gangs(2048) reduction(+:sum) present(arr)
+    #pragma acc parallel loop gang num_gangs(1024) reduction(+:sum) present(arr)
     for(size_t i = 0; i < len; i++)
     {
         sum += arr[i];

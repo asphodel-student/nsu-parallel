@@ -27,11 +27,11 @@ int main(int argc, char** argv)
 	matrixA[0] = CORNER1;
 	matrixA[size - 1] = CORNER2;
 	matrixA[size * size - 1] = CORNER3;
-	matrixA[size * (size - 1) - 1] = CORNER4;
+	matrixA[size * (size - 1)] = CORNER4;
 
 
 	size_t totalSize = size * size;
-	const double step = (CORNER2 - CORNER1) / size;
+	const double step = (CORNER2 - CORNER1) / (size - 1);
 //	#pragma acc enter data copyin(matrixA[0:totalSize]) create(matrixB[0:totalSize])
 //	#pragma acc parallel loop 
 	for (int i = 1; i < size - 1; i++)
@@ -75,7 +75,7 @@ int main(int argc, char** argv)
 					matrixA[(i + 1) * size + j] +
 					matrixA[i * size + j + 1]);
 
-					error = fmax(error, matrixB[i * size + j] - matrixA[i * size + j]);
+				if(iter % 100 == 0)	error = fmax(error, matrixB[i * size + j] - matrixA[i * size + j]);
 			}
 		}
 	if(iter % 100 == 0)
