@@ -93,6 +93,9 @@ int main(int argc, char** argv)
 
 
 	std::cout << "Iter: " << iter << " Error: " << error << std::endl;
+	
+	delete[] matrixA;
+	delete[] matrixB;
 
 	return 0;
 }
