@@ -1,115 +1,125 @@
 #include <iostream>
-#include <cstring>
+#include <string>
 #include <cmath>
 #include <ctime>
 
-#define NUM_OF_PARAM 4
+#include <cuda_runtime.h>
+#include <cublas_v2.h>
 
 #define CORNER1 10
 #define CORNER2 20
 #define CORNER3 30
 #define CORNER4 20
 
-double matrixA[4096][4096] = { 0 };
-double matrixB[4096][4096] = { 0 };
-
-double computeArray(size_t gridSize, double error)
-{
-   error = 0.0;
-
-    #pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) reduction(max:error) \
-	present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize]) 
-    for (size_t i = 1; i < gridSize - 1; i++)
-    {
-        for (size_t j = 1; j < gridSize - 1; j++)
-        {
-            matrixB[i][j] = 0.25 * (matrixA[i + 1][j] + matrixA[i - 1][j] + matrixA[i][j - 1] + matrixA[i][j + 1]);
-            error = fmax(error, matrixB[i][j] - matrixA[i][j]);
-        }
-    }
-
-    return error;
-}
-
-void updateArrays(size_t gridSize)
-{
-    #pragma acc parallel loop seq vector vector_length(256) gang num_gangs(256) \
-	present(matrixA[0:gridSize][0:gridSize], matrixB[0:gridSize][0:gridSize])
-    for (size_t i = 1; i < gridSize; i++)
-    {
-        for (size_t j = 0; j < gridSize; j++)
-        {
-            matrixA[i][j] = matrixB[i][j];
-        }
-    }
-}
-
 int main(int argc, char** argv)
 {
-    if (argc < NUM_OF_PARAM)
-    {
-        std::cout << "Number of argument should be 3." << std::endl;
-        std::cout << "Arguments: accuracy, grid size, number of iterations" << std::endl;
-        return -1;
-    }
+	const double minError = std::pow(10, -std::stoi(argv[1]));
+	const int size = std::stoi(argv[2]);
+	const int maxIter = std::stoi(argv[3]);
 
-    double minError = std::pow(10, -std::stoi(argv[1]));
-    size_t gridSize = std::stoi(argv[2]);
-    size_t numOfIter = std::stoi(argv[3]);
+	std::cout << "Parameters: " << std::endl <<
+		"Min error: " << minError << std::endl <<
+		"Maximal number of iteration: " << maxIter << std::endl <<
+		"Grid size: " << size << std::endl;
 
-    if (gridSize < 128 || gridSize > 4096 || numOfIter < 0 || numOfIter > 10000000) return -1;
+	double* matrixA = new double[size * size];
+	double* matrixB = new double[size * size];
+	
+	std::memset(matrixA, 0, size * size * sizeof(double));
 
-    std::cout << "Min error " << minError << std::endl;
-    std::cout << "Grid size: " << gridSize << std::endl;
-    std::cout << "Max number of iteration: " << numOfIter << std::endl;
+	// Adding the border conditions
+	matrixA[0] = CORNER1;
+	matrixA[size - 1] = CORNER2;
+	matrixA[size * size - 1] = CORNER3;
+	matrixA[size * (size - 1)] = CORNER4;
 
-    // Adding a boundary conditions
-    matrixA[0][0] = matrixB[0][0] = CORNER1;
-    matrixA[0][gridSize - 1] = matrixB[0][gridSize - 1] = CORNER2;
-    matrixA[gridSize - 1][0] = matrixB[gridSize - 1][0] = CORNER4;
-    matrixA[gridSize - 1][gridSize - 1] = matrixB[gridSize - 1][gridSize - 1] = CORNER3;
+	const double step = 1.0 * (CORNER2 - CORNER1) / (size - 1);
+	for (int i = 1; i < size - 1; i++)
+	{
+		matrixA[i] = CORNER1 + i * step;
+		matrixA[i * size] = CORNER1 + i * step;
+		matrixA[(size - 1) * i] = CORNER2 + i * step;
+		matrixA[size * (size - 1) + i] = CORNER4 + i * step;
+	}
 
-    double step = 1.0 * (CORNER2 - CORNER1) / gridSize;
-    double step2 = 1.0 * (CORNER3 - CORNER2) / gridSize;
-    double step3 = 1.0 * (CORNER3 - CORNER4) / gridSize;
-    double step4 = 1.0 * (CORNER4 - CORNER1) / gridSize;
+	std::memcpy(matrixB, matrixA, size * size * sizeof(double));
 
-    std::cout << step << " " << step2 << " " << step3 << " " << step4;
+	cublasHandle_t handler = 0;
+	cublasStatus_t status;
+	cudaError err;
+	double error = 1.0;
+	int iter = 0;
 
-    clock_t initBegin = clock();
-      
-    #pragma acc data copy (matrixB[0:gridSize][0:gridSize]), copy (matrixA[0:gridSize][0:gridSize]) 
-    {
-    #pragma acc parallel loop seq gang num_gangs(256) vector vector_length(256)
-    for (size_t i = 1; i < gridSize - 1; i++)
-    {
-        matrixA[0][i] = matrixB[0][i] = CORNER1 + step * i;
-        matrixA[i][0] = matrixB[i][0] = CORNER1 + step * i;
-        matrixA[gridSize - 1][i] = matrixB[gridSize - 1][i] = CORNER3 + step * i;
-        matrixA[i][gridSize - 1] = matrixB[i][gridSize - 1] = CORNER2 + step * i;
-    }
+	status = cublasCreate(&handler);
 
-    clock_t initEnd = clock();
-    std::cout << "Initialization time: " << 1.0 * (initEnd - initBegin) / CLOCKS_PER_SEC << std::endl;
+	std::cout << "Start: " << std::endl;
 
-    clock_t algBegin = clock();
+// Main algorithm
+#pragma acc enter data copyin(matrixA[0:totalSize], matrixB[0:totalSize], error)
+	{
+		clock_t begin = clock();
+		int idx = 0;
+		double alpha = -1.0;
+
+		while (error > minError && iter < maxIter)
+		{
+			iter++;
+			if (iter % 100 == 0)
+			{
+				error = 0.0;
+#pragma acc update device(error)
+			}
+
+#pragma acc data present(matrixA, matrixB, error)
+#pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256) 
+			{
+				for (int i = 1; i < size - 1; i++)
+				{
+					for (int j = 1; j < size - 1; j++)
+					{
+						matrixB[i * size + j] = 0.25 *
+							(matrixA[i * size + j - 1] +
+								matrixA[(i - 1) * size + j] +
+								matrixA[(i + 1) * size + j] +
+								matrixA[i * size + j + 1]);
+					}
+				}
+			}
+
+#pragma acc  data present(matrixA[0:totalSize], matrixB[0:totalSize])
+			{
+#pragma acc host_data use_device(matrixB, matrixA)
+				{
+					status = cublasDaxpy_v2(handler, size * size, &alpha, matrixB, 1, matrixA, 1);
+					status = cublasIdamax_v2(handler, size * size, matrixA, 1, &idx);
+					err = cudaMemcpy(&error, &matrixA[idx], sizeof(double), cudaMemcpyDeviceToHost);
+					
+#pragma acc kernels
+					{
+						error = matrixA[idx];
+					}
+				}
+			}
+
+			if (iter % 100 == 0)
+			{
+#pragma acc update host(error) 
+			}
+
+			double* temp = matrixA;
+			matrixA = matrixB;
+			matrixB = temp;
+		}
+
+		clock_t end = clock();
+		std::cout << "Time: " << 1.0 * (end - begin) / CLOCKS_PER_SEC << std::endl;
+	}
 
 
-    // Main algorithm
-    std::cout << "-----------Start-----------" << std::endl;
-    double error = 1.0; int iter = 0;
-    while (minError < error && iter < numOfIter)
-    {
-        error = computeArray(gridSize, error);
-        iter++;
-        updateArrays(gridSize);
-    }
+	std::cout << "Iter: " << iter << " Error: " << error << std::endl;
 
-    clock_t algEnd = clock();
+	delete[] matrixA;
+	delete[] matrixB;
 
-    std::cout << "Number of iteration: " << iter << ", error:  " << error << std::endl;
-    std::cout << "Time of computation: " << 1.0 * (algEnd - algBegin) / CLOCKS_PER_SEC << std::endl;
-    }
-    
-    return 0;
+	return 0;
 }
