@@ -1,5 +1,5 @@
 #include <iostream>
-#include <string>
+#include <cstring>
 #include <cmath>
 #include <ctime>
 
@@ -44,7 +44,7 @@ int main(int argc, char** argv)
 
 	std::memcpy(matrixB, matrixA, size * size * sizeof(double));
 
-	cublasHandle_t handler = 0;
+	cublasHandle_t handler;
 	cublasStatus_t status;
 	cudaError err;
 	double error = 1.0;
@@ -55,7 +55,7 @@ int main(int argc, char** argv)
 	std::cout << "Start: " << std::endl;
 
 // Main algorithm
-#pragma acc enter data copyin(matrixA[0:totalSize], matrixB[0:totalSize], error)
+#pragma acc enter data copyin(matrixA[0:totalSize], matrixB[0:totalSize], error, idx)
 	{
 		clock_t begin = clock();
 		int idx = 0;
@@ -70,40 +70,37 @@ int main(int argc, char** argv)
 #pragma acc update device(error)
 			}
 
-#pragma acc data present(matrixA, matrixB, error)
+#pragma acc data present(matrixA, matrixB, error, idx)
 #pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256) 
+		{
+			for (int i = 1; i < size - 1; i++)
 			{
-				for (int i = 1; i < size - 1; i++)
+				for (int j = 1; j < size - 1; j++)
 				{
-					for (int j = 1; j < size - 1; j++)
-					{
-						matrixB[i * size + j] = 0.25 *
-							(matrixA[i * size + j - 1] +
-								matrixA[(i - 1) * size + j] +
-								matrixA[(i + 1) * size + j] +
-								matrixA[i * size + j + 1]);
-					}
+					matrixB[i * size + j] = 0.25 *
+						(matrixA[i * size + j - 1] +
+							matrixA[(i - 1) * size + j] +
+							matrixA[(i + 1) * size + j] +
+							matrixA[i * size + j + 1]);
 				}
 			}
-
-#pragma acc  data present(matrixA[0:totalSize], matrixB[0:totalSize])
+		}
+#pragma acc kernels host_data use_device(matrixA, matrixB)
+		{
+			status = cublasDaxpy(handler, size * size, &alpha, matrixB, 1, matrixA, 1);
+			std::cout << status << std::endl;
+			status = cublasIdamax(handler, size * size, matrixA, 1, &idx);
+			//err = cudaMemcpy(&error, &matrixA[idx - 1], sizeof(double), cudaMemcpyDeviceToHost);
+			std::cout << status << std::endl;
+			#pragma acc kernels
 			{
-#pragma acc host_data use_device(matrixB, matrixA)
-				{
-					status = cublasDaxpy_v2(handler, size * size, &alpha, matrixB, 1, matrixA, 1);
-					status = cublasIdamax_v2(handler, size * size, matrixA, 1, &idx);
-					err = cudaMemcpy(&error, &matrixA[idx], sizeof(double), cudaMemcpyDeviceToHost);
-					
-#pragma acc kernels
-					{
-						error = matrixA[idx];
-					}
-				}
+				error = matrixA[idx-1];
 			}
+		}
 
 			if (iter % 100 == 0)
 			{
-#pragma acc update host(error) 
+			#pragma acc update host(error) 
 			}
 
 			double* temp = matrixA;
