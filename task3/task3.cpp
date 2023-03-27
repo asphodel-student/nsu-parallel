@@ -81,6 +81,7 @@ int main(int argc, char** argv)
 
 			if (iter % 100 == 0)
 			{
+// Ищем максимум из разницы
 #pragma acc data present (matrixA, matrixB)
 #pragma acc host_data use_device(matrixA, matrixB)
 				{
@@ -88,10 +89,11 @@ int main(int argc, char** argv)
 			status = cublasIdamax(handler, size * size, matrixA, 1, &idx);
 				}
 
+// Возвращаем ошибку на host
 #pragma acc update host(matrixA[idx - 1])
 			error = std::abs(matrixA[idx - 1]);
 			
-		
+// 'Восстанавливаем' матрицу A		
 #pragma acc host_data use_device(matrixA, matrixB)
 			status = cublasDcopy(handler, size * size, matrixB, 1, matrixA, 1);
 			}	
