@@ -55,7 +55,7 @@ int main(int argc, char** argv)
 	std::cout << "Start: " << std::endl;
 
 // Main algorithm
-#pragma acc data create(matrixA[0:totalSize], matrixB[0:totalSize], error, idx)
+#pragma acc enter data copyin(matrixA[0:totalSize], matrixB[0:totalSize])
 	{
 		clock_t begin = clock();
 		int idx = 0;
@@ -64,15 +64,9 @@ int main(int argc, char** argv)
 		while (error > minError && iter < maxIter)
 		{
 			iter++;
-			if (iter % 100 == 0)
-			{
-				error = 0.0;
-#pragma acc update device(error)
-			}
 
-#pragma acc data present(matrixA, matrixB, error)
-#pragma acc kernels //parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256)
-		{
+#pragma acc data present(matrixA, matrixB)
+#pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256)
 			for (int i = 1; i < size - 1; i++)
 			{
 				for (int j = 1; j < size - 1; j++)
@@ -84,25 +78,23 @@ int main(int argc, char** argv)
 							matrixA[i * size + j + 1]);
 				}
 			}
-		}
-#pragma acc data present (matrixA, matrixB)
-#pragma acc host_data use_device(matrixA, matrixB)
-		{
-			status = cublasDaxpy(handler, size * size, &alpha, matrixB, 1, matrixA, 1);
-			//std::cout << status << std::endl;
-			status = cublasIdamax(handler, size * size, matrixA, 1, &idx);
-			err = cudaMemcpy(&error, &matrixA[idx - 1], sizeof(double), cudaMemcpyDeviceToHost);
-			std::cout << " " << error << std::endl;
-			/*#pragma acc kernels
-			{
-				error = matrixA[idx-1];
-			}*/
-		}
 
 			if (iter % 100 == 0)
 			{
-			#pragma acc update host(error) 
-			}
+#pragma acc data present (matrixA, matrixB)
+#pragma acc host_data use_device(matrixA, matrixB)
+				{
+			status = cublasDaxpy(handler, size * size, &alpha, matrixB, 1, matrixA, 1);
+			status = cublasIdamax(handler, size * size, matrixA, 1, &idx);
+				}
+
+#pragma acc update host(matrixA[idx - 1])
+			error = std::abs(matrixA[idx - 1]);
+			
+		
+#pragma acc host_data use_device(matrixA, matrixB)
+			status = cublasDcopy(handler, size * size, matrixB, 1, matrixA, 1);
+			}	
 
 			double* temp = matrixA;
 			matrixA = matrixB;
