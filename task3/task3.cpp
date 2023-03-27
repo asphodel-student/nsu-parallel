@@ -55,7 +55,7 @@ int main(int argc, char** argv)
 	std::cout << "Start: " << std::endl;
 
 // Main algorithm
-#pragma acc enter data copyin(matrixA[0:totalSize], matrixB[0:totalSize])
+#pragma acc enter data copyin(matrixA[0:totalSize], matrixB[0:totalSize]) 
 	{
 		clock_t begin = clock();
 		int idx = 0;
@@ -66,7 +66,7 @@ int main(int argc, char** argv)
 			iter++;
 
 #pragma acc data present(matrixA, matrixB)
-#pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256)
+#pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256) async
 			for (int i = 1; i < size - 1; i++)
 			{
 				for (int j = 1; j < size - 1; j++)
@@ -82,7 +82,7 @@ int main(int argc, char** argv)
 			if (iter % 100 == 0)
 			{
 // Ищем максимум из разницы
-#pragma acc data present (matrixA, matrixB)
+#pragma acc data present (matrixA, matrixB) wait
 #pragma acc host_data use_device(matrixA, matrixB)
 				{
 			status = cublasDaxpy(handler, size * size, &alpha, matrixB, 1, matrixA, 1);
@@ -90,13 +90,13 @@ int main(int argc, char** argv)
 				}
 
 // Возвращаем ошибку на host
-#pragma acc update host(matrixA[idx - 1])
+#pragma acc update host(matrixA[idx - 1]) 
 			error = std::abs(matrixA[idx - 1]);
-			
+
 // 'Восстанавливаем' матрицу A		
 #pragma acc host_data use_device(matrixA, matrixB)
 			status = cublasDcopy(handler, size * size, matrixB, 1, matrixA, 1);
-			}	
+			}
 
 			double* temp = matrixA;
 			matrixA = matrixB;
