@@ -43,19 +43,19 @@ int main(int argc, char** argv)
 	}
 
 	std::memcpy(matrixB, matrixA, size * size * sizeof(double));
-
+	size_t totalSize = size * size;
 	cublasHandle_t handler;
 	cublasStatus_t status;
 	cudaError err;
 	double error = 1.0;
-	int iter = 0;
+	int iter = 0, idx = 0;
 
 	status = cublasCreate(&handler);
 
 	std::cout << "Start: " << std::endl;
 
 // Main algorithm
-#pragma acc enter data copyin(matrixA[0:totalSize], matrixB[0:totalSize], error, idx)
+#pragma acc data create(matrixA[0:totalSize], matrixB[0:totalSize], error, idx)
 	{
 		clock_t begin = clock();
 		int idx = 0;
@@ -70,8 +70,8 @@ int main(int argc, char** argv)
 #pragma acc update device(error)
 			}
 
-#pragma acc data present(matrixA, matrixB, error, idx)
-#pragma acc parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256) 
+#pragma acc data present(matrixA, matrixB, error)
+#pragma acc kernels //parallel loop independent collapse(2) vector vector_length(256) gang num_gangs(256)
 		{
 			for (int i = 1; i < size - 1; i++)
 			{
@@ -85,17 +85,18 @@ int main(int argc, char** argv)
 				}
 			}
 		}
-#pragma acc kernels host_data use_device(matrixA, matrixB)
+#pragma acc data present (matrixA, matrixB)
+#pragma acc host_data use_device(matrixA, matrixB)
 		{
 			status = cublasDaxpy(handler, size * size, &alpha, matrixB, 1, matrixA, 1);
-			std::cout << status << std::endl;
+			//std::cout << status << std::endl;
 			status = cublasIdamax(handler, size * size, matrixA, 1, &idx);
-			//err = cudaMemcpy(&error, &matrixA[idx - 1], sizeof(double), cudaMemcpyDeviceToHost);
-			std::cout << status << std::endl;
-			#pragma acc kernels
+			err = cudaMemcpy(&error, &matrixA[idx - 1], sizeof(double), cudaMemcpyDeviceToHost);
+			std::cout << " " << error << std::endl;
+			/*#pragma acc kernels
 			{
 				error = matrixA[idx-1];
-			}
+			}*/
 		}
 
 			if (iter % 100 == 0)
