@@ -38,11 +38,12 @@ int main(int argc, char** argv)
 	{
 		matrixA[i] = CORNER1 + i * step;
 		matrixA[i * size] = CORNER1 + i * step;
-		matrixA[(size - 1) * i] = CORNER2 + i * step;
+		matrixA[(size - 1) + i * size] = CORNER2 + i * step;
 		matrixA[size * (size - 1) + i] = CORNER4 + i * step;
 	}
 
 	std::memcpy(matrixB, matrixA, size * size * sizeof(double));
+
 	size_t totalSize = size * size;
 	cublasHandle_t handler;
 	cublasStatus_t status;
