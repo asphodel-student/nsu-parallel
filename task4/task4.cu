@@ -2,14 +2,9 @@
 #include <cstring>
 #include <cmath>
 #include <ctime>
-#include <iomanip>
 
 #include <cuda_runtime.h>
-#include <cublas_v2.h>
 #include <cub/cub.cuh>
-#include <cub/block/block_load.cuh>
-#include <cub/block/block_store.cuh>
-#include <cub/block/block_reduce.cuh>
 
 #define CORNER1 10
 #define CORNER2 20
@@ -21,7 +16,7 @@ void calculateMatrix(double* matrixA, double* matrixB, size_t size)
 {
 	size_t i = blockIdx.x;
 	size_t j = threadIdx.x;
-
+	
 	if(!(blockIdx.x == 0 || threadIdx.x == 0))
 	{
 		matrixB[i * size + j] = 0.25 * (matrixA[i * size + j - 1] + matrixA[(i - 1) * size + j] +
@@ -29,47 +24,17 @@ void calculateMatrix(double* matrixA, double* matrixB, size_t size)
 	}
 }
 
-/*template <int BLOCK_THREADS, 
-int ITEMS_PER_THREAD,
-cub::BlockReduceAlgorithm ALGORITHM>
-__global__ void BlockReduceKernel(double *matrixA, double* matrixB, double *d_out)    
+__global__
+void getErrorMatrix(double* matrixA, double* matrixB, double* outputMatrix)
 {
-    
-    typedef BlockReduce<double, BLOCK_THREADS, ALGORITHM> BlockReduceT;
-    
-    __shared__ typename BlockReduceT::TempStorage temp_storage;
-   
-    double data_1[ITEMS_PER_THREAD];
-	double data_2[ITEMS_PER_THREAD];
+	size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    LoadDirectStriped<BLOCK_THREADS>(threadIdx.x, matrixA, data_1);
-	LoadDirectStriped<BLOCK_THREADS>(threadIdx.x, matrixB, data_2);
-   
-	for (size_t i = 0; i < ITEMS_PER_THREAD; i++)
+	if(!(blockIdx.x == 0 || threadIdx.x == 0))
 	{
-		data_1[i] =  std::abs(matrixB[i] - matrixA[i]);
-		data_1
+		outputMatrix[idx] = std::abs(matrixB[idx] - matrixA[idx]);
 	}
-
-    // Compute sum
-    int aggregate = BlockReduceT(temp_storage).Sum(data);
-   
-    // Store aggregate and elapsed clocks
-    if (threadIdx.x == 0)
-    {
-        *d_out = aggregate;
-    }
 }
 
-struct CustomMax
-{
-	__device__ __forceinline__
-	double operator()(double &a, double &b)
-	{
-		return (a < b) ? a : b;
-	}
-};
-*/
 
 int main(int argc, char** argv)
 {
@@ -107,9 +72,13 @@ int main(int argc, char** argv)
 
 	cudaSetDevice(3);
 
-	double* deviceMatrixAPtr, *deviceMatrixBPtr, *deviceErrorsMatrix; 
+	double* deviceMatrixAPtr, *deviceMatrixBPtr, *deviceError, *errorMatrix, *tempStorage = NULL;
+	size_t tempStorageSize = 0;
+
 	cudaError_t cudaStatus_1 = cudaMalloc((void**)(&deviceMatrixAPtr), sizeof(double) * totalSize);
 	cudaError_t cudaStatus_2 = cudaMalloc((void**)(&deviceMatrixBPtr), sizeof(double) * totalSize);
+	cudaMalloc((void**)&deviceError, sizeof(double));
+	cudaStatus_1 = cudaMalloc((void**)&errorMatrix, sizeof(double) * totalSize);
 	
 	if (cudaStatus_1 != 0 || cudaStatus_2 != 0)
 	{
@@ -126,29 +95,26 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	cublasHandle_t handler;
-	cublasStatus_t status;
-	status = cublasCreate(&handler);
+	// Getting temp storage size
+	cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, totalSize);
+	cudaMalloc((void**)&tempStorage, tempStorageSize);
 
-	int iter = 0, idx = 0, storageSize = 0; 
-	double error = 1.0, alpha = -1.0;
+	int iter = 0; 
+	double error = 1.0;
 
 	clock_t begin = clock();
 	while(iter < maxIter && error > minError)
 	{
 		iter++;
-
 		calculateMatrix<<<size - 1, size - 1>>>(deviceMatrixAPtr, deviceMatrixBPtr, size);
 
 		if(iter % 100 == 0)
 		{
-			status = cublasDaxpy(handler, size * size, &alpha, deviceMatrixBPtr, 1, deviceMatrixAPtr, 1);
-			status = cublasIdamax(handler, size * size, deviceMatrixAPtr, 1, &idx);
-			cudaMemcpy(&error, &deviceMatrixAPtr[idx - 1], sizeof(double), cudaMemcpyDeviceToHost);
-			error = std::abs(error);
-			status = cublasDcopy(handler, size * size, deviceMatrixBPtr, 1, deviceMatrixAPtr, 1);
+			getErrorMatrix<<<size - 1, size - 1>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix);
+			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, totalSize);
+			cudaMemcpy(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost);
 		}
-
+		
 		std::swap(deviceMatrixAPtr, deviceMatrixBPtr);
 	}
 
@@ -156,22 +122,10 @@ int main(int argc, char** argv)
 	std::cout << "Time: " << 1.0 * (end - begin) / CLOCKS_PER_SEC << std::endl;
 	std::cout << "Iter: " << iter << " Error: " << error << std::endl;
 
-	cudaStatus_1 = cudaMemcpy((void*)matrixA, (void*)deviceMatrixAPtr, sizeof(double) * totalSize, cudaMemcpyDeviceToHost);
-
-	std::cout << cudaStatus_1 << std::endl;
-
-	/*for (size_t i = 0; i < size; i++)
-	{
-		for (size_t j = 0; j < size; j++)
-		{
-			std::cout << matrixA[i * size + j] << " ";
-		}
-
-		std::cout << std::endl;
-	}*/
-
 	cudaFree(deviceMatrixAPtr);
 	cudaFree(deviceMatrixBPtr);
+	cudaFree(errorMatrix);
+	cudaFree(tempStorage);
 
 	delete[] matrixA;
 	delete[] matrixB;
