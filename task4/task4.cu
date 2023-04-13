@@ -11,6 +11,8 @@
 #define CORNER3 30
 #define CORNER4 20
 
+
+// Главная функция - расчёт поля 
 __global__
 void calculateMatrix(double* matrixA, double* matrixB, size_t size)
 {
@@ -24,6 +26,7 @@ void calculateMatrix(double* matrixA, double* matrixB, size_t size)
 	}
 }
 
+// Функция, подсчитывающая разницу матриц
 __global__
 void getErrorMatrix(double* matrixA, double* matrixB, double* outputMatrix)
 {
@@ -38,6 +41,7 @@ void getErrorMatrix(double* matrixA, double* matrixB, double* outputMatrix)
 
 int main(int argc, char** argv)
 {
+	// Получаем значения из коммандной строки
 	const double minError = std::pow(10, -std::stoi(argv[1]));
 	const int size = std::stoi(argv[2]);
 	const int maxIter = std::stoi(argv[3]);
@@ -48,12 +52,13 @@ int main(int argc, char** argv)
 		"Maximal number of iteration: " << maxIter << std::endl <<
 		"Grid size: " << size << std::endl;
 
+	// Выделение памяти на хосте
 	double* matrixA = new double[totalSize];
 	double* matrixB = new double[totalSize];
 	
 	std::memset(matrixA, 0, totalSize * sizeof(double));
 
-	// Adding the border conditions
+	// Заполнение граничных условий
 	matrixA[0] = CORNER1;
 	matrixA[size - 1] = CORNER2;
 	matrixA[size * size - 1] = CORNER3;
@@ -70,8 +75,10 @@ int main(int argc, char** argv)
 
 	std::memcpy(matrixB, matrixA, totalSize * sizeof(double));
 
+	// Выбор устройства
 	cudaSetDevice(3);
 
+	// Выделяем папять на девайсе и копируем память с хоста
 	double* deviceMatrixAPtr, *deviceMatrixBPtr, *deviceError, *errorMatrix, *tempStorage = NULL;
 	size_t tempStorageSize = 0;
 
@@ -95,19 +102,24 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	// Getting temp storage size
+	// Здесь мы получаем размер временного буфера для редукции
 	cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, totalSize);
+	
+	// Выделяем память для буфера
 	cudaMalloc((void**)&tempStorage, tempStorageSize);
 
 	int iter = 0; 
 	double error = 1.0;
 
+	// Главный алгоритм 
 	clock_t begin = clock();
 	while(iter < maxIter && error > minError)
 	{
 		iter++;
+		// Расчет матрицы
 		calculateMatrix<<<size - 1, size - 1>>>(deviceMatrixAPtr, deviceMatrixBPtr, size);
 
+		// Расчитываем ошибку каждую сотую итерацию
 		if(iter % 100 == 0)
 		{
 			getErrorMatrix<<<size - 1, size - 1>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix);
@@ -115,6 +127,7 @@ int main(int argc, char** argv)
 			cudaMemcpy(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost);
 		}
 		
+		// Обмен указателей
 		std::swap(deviceMatrixAPtr, deviceMatrixBPtr);
 	}
 
@@ -122,6 +135,7 @@ int main(int argc, char** argv)
 	std::cout << "Time: " << 1.0 * (end - begin) / CLOCKS_PER_SEC << std::endl;
 	std::cout << "Iter: " << iter << " Error: " << error << std::endl;
 
+	// Высвобождение памяти
 	cudaFree(deviceMatrixAPtr);
 	cudaFree(deviceMatrixBPtr);
 	cudaFree(errorMatrix);
