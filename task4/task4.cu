@@ -11,6 +11,10 @@
 #define CORNER3 30
 #define CORNER4 20
 
+#define ERROR_STEP 100
+
+
+// Главная функция - расчёт поля 
 __global__
 void calculateMatrix(double* matrixA, double* matrixB, size_t size)
 {
@@ -24,6 +28,7 @@ void calculateMatrix(double* matrixA, double* matrixB, size_t size)
 	}
 }
 
+// Функция, подсчитывающая разницу матриц
 __global__
 void getErrorMatrix(double* matrixA, double* matrixB, double* outputMatrix)
 {
@@ -38,6 +43,7 @@ void getErrorMatrix(double* matrixA, double* matrixB, double* outputMatrix)
 
 int main(int argc, char** argv)
 {
+	// Получаем значения из коммандной строки
 	const double minError = std::pow(10, -std::stoi(argv[1]));
 	const int size = std::stoi(argv[2]);
 	const int maxIter = std::stoi(argv[3]);
@@ -48,12 +54,16 @@ int main(int argc, char** argv)
 		"Maximal number of iteration: " << maxIter << std::endl <<
 		"Grid size: " << size << std::endl;
 
-	double* matrixA = new double[totalSize];
-	double* matrixB = new double[totalSize];
+	// Выделение памяти на хосте
+	double* matrixA;
+	double* matrixB;
+
+	cudaMallocHost(&matrixA, totalSize * sizeof(double));
+	cudaMallocHost(&matrixB, totalSize * sizeof(double));
 	
 	std::memset(matrixA, 0, totalSize * sizeof(double));
 
-	// Adding the border conditions
+	// Заполнение граничных условий
 	matrixA[0] = CORNER1;
 	matrixA[size - 1] = CORNER2;
 	matrixA[size * size - 1] = CORNER3;
@@ -70,8 +80,10 @@ int main(int argc, char** argv)
 
 	std::memcpy(matrixB, matrixA, totalSize * sizeof(double));
 
-	cudaSetDevice(3);
+	// Выбор устройства
+	cudaSetDevice(2);
 
+	// Выделяем папять на девайсе и копируем память с хоста
 	double* deviceMatrixAPtr, *deviceMatrixBPtr, *deviceError, *errorMatrix, *tempStorage = NULL;
 	size_t tempStorageSize = 0;
 
@@ -95,40 +107,66 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	// Getting temp storage size
+	// Здесь мы получаем размер временного буфера для редукции
 	cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, totalSize);
+	
+	// Выделяем память для буфера
 	cudaMalloc((void**)&tempStorage, tempStorageSize);
 
 	int iter = 0; 
 	double error = 1.0;
 
+	bool isGraphCreated = false;
+	cudaStream_t stream, memoryStream;
+	cudaStreamCreate(&stream);
+	cudaStreamCreate(&memoryStream);
+	cudaGraph_t graph;
+	cudaGraphExec_t instance;
+
+	// Главный алгоритм 
 	clock_t begin = clock();
 	while(iter < maxIter && error > minError)
 	{
-		iter++;
-		calculateMatrix<<<size - 1, size - 1>>>(deviceMatrixAPtr, deviceMatrixBPtr, size);
-
-		if(iter % 100 == 0)
+		// Расчет матрицы
+		if (isGraphCreated)
 		{
-			getErrorMatrix<<<size - 1, size - 1>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix);
+			cudaGraphLaunch(instance, stream);
 			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, totalSize);
-			cudaMemcpy(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost);
+			cudaMemcpyAsync(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, memoryStream);
+			iter += ERROR_STEP;
 		}
-		
-		std::swap(deviceMatrixAPtr, deviceMatrixBPtr);
+		else
+		{
+			cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal);
+			for(size_t i = 0; i < ERROR_STEP / 2; i++)
+			{
+				calculateMatrix<<<size - 1, size - 1, 0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, size);
+				calculateMatrix<<<size - 1, size - 1, 0, stream>>>(deviceMatrixBPtr, deviceMatrixAPtr, size);
+			}
+			// Расчитываем ошибку каждую сотую итерацию
+			getErrorMatrix<<<size - 1, size - 1,  0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix);
+
+			cudaStreamEndCapture(stream, &graph);
+			cudaGraphInstantiate(&instance, graph, NULL, NULL, 0);
+			isGraphCreated = true;
+  		}
 	}
 
 	clock_t end = clock();
 	std::cout << "Time: " << 1.0 * (end - begin) / CLOCKS_PER_SEC << std::endl;
 	std::cout << "Iter: " << iter << " Error: " << error << std::endl;
 
+	// Высвобождение памяти
 	cudaFree(deviceMatrixAPtr);
 	cudaFree(deviceMatrixBPtr);
 	cudaFree(errorMatrix);
 	cudaFree(tempStorage);
+	cudaFree(matrixA);
+	cudaFree(matrixB);
 
-	delete[] matrixA;
-	delete[] matrixB;
+	cudaStreamDestroy(stream);
+	cudaStreamDestroy(memoryStream);
+	cudaGraphDestroy(graph);
 
 	return 0;
 }
