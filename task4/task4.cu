@@ -131,8 +131,9 @@ int main(int argc, char** argv)
 		if (isGraphCreated)
 		{
 			cudaGraphLaunch(instance, stream);
-			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, totalSize);
+			cudaStreamSynchronize(stream);
 			cudaMemcpyAsync(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, memoryStream);
+
 			iter += ERROR_STEP;
 		}
 		else
@@ -145,7 +146,8 @@ int main(int argc, char** argv)
 			}
 			// Расчитываем ошибку каждую сотую итерацию
 			getErrorMatrix<<<size - 1, size - 1,  0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix);
-
+			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, totalSize, stream);
+	
 			cudaStreamEndCapture(stream, &graph);
 			cudaGraphInstantiate(&instance, graph, NULL, NULL, 0);
 			isGraphCreated = true;
