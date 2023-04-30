@@ -14,7 +14,6 @@
 #define CORNER3 30
 #define CORNER4 20
 
-
 // Главная функция - расчёт поля 
 __global__
 void calculateMatrix(double* matrixA, double* matrixB, size_t size, size_t sizePerGpu)
@@ -62,6 +61,11 @@ int main(int argc, char** argv)
 	}
 
 	cudaSetDevice(rank);
+
+	if (rank!=0)
+        cudaDeviceEnablePeerAccess(rank - 1, 0);
+    if (rank!=sizeOfTheGroup-1)
+        cudaDeviceEnablePeerAccess(rank + 1, 0);
 
 	// Размечаем границы между устройствами
 	size_t sizeOfAreaForOneProcess = size / sizeOfTheGroup;
@@ -133,6 +137,10 @@ int main(int argc, char** argv)
 	int iter = 0; 
 	double error = 1.0;
 
+	cudaStream_t stream, memoryStream;
+	cudaStreamCreate(&stream);
+	cudaStreamCreate(&memoryStream);
+
 	// Главный алгоритм 
 	clock_t begin = clock();
 	while((iter < maxIter) && error > minError)
@@ -140,14 +148,14 @@ int main(int argc, char** argv)
 		iter++;
 
 		// Расчет матрицы
-		calculateMatrix<<<gridDim, blockDim>>>(deviceMatrixAPtr, deviceMatrixBPtr, size, sizeOfAreaForOneProcess);
+		calculateMatrix<<<gridDim, blockDim, 0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, size, sizeOfAreaForOneProcess);
 		
 		// Расчитываем ошибку каждую сотую итерацию
 		if (iter % 100 == 0)
 		{
-			getErrorMatrix<<<blocks_x * blocks_y, threads_x>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix, size);
+			getErrorMatrix<<<blocks_x * blocks_y, threads_x, 0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix, size);
 			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, sizeOfAllocatedMemory);
-			cudaMemcpy(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost);
+			cudaMemcpyAsync(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, stream);
 
 			// Находим максимальную ошибку среди всех и передаём её всем процессам
 			MPI_Allreduce((void*)&error,(void*)&error, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
