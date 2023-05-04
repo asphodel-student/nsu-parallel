@@ -18,10 +18,12 @@
 __global__
 void calculateMatrix(double* matrixA, double* matrixB, size_t size)
 {
-	size_t i = blockIdx.x;
-	size_t j = threadIdx.x;
+	unsigned int j = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int i = blockIdx.y * blockDim.y + threadIdx.y;
+
+	if (i * size + j > size * size) return;
 	
-	if(!(blockIdx.x == 0 || threadIdx.x == 0))
+	if(!((j == 0 || i == 0 || j == size - 1 || i == size - 1)))
 	{
 		matrixB[i * size + j] = 0.25 * (matrixA[i * size + j - 1] + matrixA[(i - 1) * size + j] +
 							matrixA[(i + 1) * size + j] + matrixA[i * size + j + 1]);		
@@ -30,14 +32,12 @@ void calculateMatrix(double* matrixA, double* matrixB, size_t size)
 
 // Функция, подсчитывающая разницу матриц
 __global__
-void getErrorMatrix(double* matrixA, double* matrixB, double* outputMatrix)
+void getErrorMatrix(double* matrixA, double* matrixB, double* outputMatrix, size_t size)
 {
 	size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+	if (idx > size * size) return;
 
-	if(!(blockIdx.x == 0 || threadIdx.x == 0))
-	{
-		outputMatrix[idx] = std::abs(matrixB[idx] - matrixA[idx]);
-	}
+	outputMatrix[idx] = std::abs(matrixB[idx] - matrixA[idx]);
 }
 
 
@@ -49,6 +49,7 @@ int main(int argc, char** argv)
 	const int maxIter = std::stoi(argv[3]);
 	const size_t totalSize = size * size;
 
+	
 	std::cout << "Parameters: " << std::endl <<
 		"Min error: " << minError << std::endl <<
 		"Maximal number of iteration: " << maxIter << std::endl <<
@@ -91,6 +92,7 @@ int main(int argc, char** argv)
 	cudaError_t cudaStatus_2 = cudaMalloc((void**)(&deviceMatrixBPtr), sizeof(double) * totalSize);
 	cudaMalloc((void**)&deviceError, sizeof(double));
 	cudaStatus_1 = cudaMalloc((void**)&errorMatrix, sizeof(double) * totalSize);
+
 	
 	if (cudaStatus_1 != 0 || cudaStatus_2 != 0)
 	{
@@ -114,7 +116,9 @@ int main(int argc, char** argv)
 	cudaMalloc((void**)&tempStorage, tempStorageSize);
 
 	int iter = 0; 
-	double error = 1.0;
+	double* error;
+	cudaMallocHost(&error, sizeof(double));
+	*error = 1.0;
 
 	bool isGraphCreated = false;
 	cudaStream_t stream, memoryStream;
@@ -123,16 +127,24 @@ int main(int argc, char** argv)
 	cudaGraph_t graph;
 	cudaGraphExec_t instance;
 
+	size_t threads = (size < 1024) ? size : 1024;
+    unsigned int blocks = size / threads;
+
+	dim3 blockDim(threads / 32, threads / 32);
+    dim3 gridDim(blocks * 32, blocks * 32);
+
 	// Главный алгоритм 
 	clock_t begin = clock();
-	while(iter < maxIter && error > minError)
+	while(iter < maxIter && *error > minError)
 	{
 		// Расчет матрицы
 		if (isGraphCreated)
 		{
 			cudaGraphLaunch(instance, stream);
+			
+			cudaMemcpyAsync(error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, stream);
+
 			cudaStreamSynchronize(stream);
-			cudaMemcpyAsync(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, memoryStream);
 
 			iter += ERROR_STEP;
 		}
@@ -141,11 +153,11 @@ int main(int argc, char** argv)
 			cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal);
 			for(size_t i = 0; i < ERROR_STEP / 2; i++)
 			{
-				calculateMatrix<<<size - 1, size - 1, 0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, size);
-				calculateMatrix<<<size - 1, size - 1, 0, stream>>>(deviceMatrixBPtr, deviceMatrixAPtr, size);
+				calculateMatrix<<<gridDim, blockDim, 0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, size);
+				calculateMatrix<<<gridDim, blockDim, 0, stream>>>(deviceMatrixBPtr, deviceMatrixAPtr, size);
 			}
 			// Расчитываем ошибку каждую сотую итерацию
-			getErrorMatrix<<<size - 1, size - 1,  0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix);
+			getErrorMatrix<<<threads * blocks * blocks, threads,  0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix, size);
 			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, totalSize, stream);
 	
 			cudaStreamEndCapture(stream, &graph);
@@ -156,7 +168,7 @@ int main(int argc, char** argv)
 
 	clock_t end = clock();
 	std::cout << "Time: " << 1.0 * (end - begin) / CLOCKS_PER_SEC << std::endl;
-	std::cout << "Iter: " << iter << " Error: " << error << std::endl;
+	std::cout << "Iter: " << iter << " Error: " << *error << std::endl;
 
 	// Высвобождение памяти
 	cudaFree(deviceMatrixAPtr);
