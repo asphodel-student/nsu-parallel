@@ -135,7 +135,9 @@ int main(int argc, char** argv)
 	cudaMalloc((void**)&tempStorage, tempStorageSize);
 
 	int iter = 0; 
-	double error = 1.0;
+	double* error;
+	cudaMallocHost(&error, sizeof(double));
+	*error = 1.0;
 
 	cudaStream_t stream, memoryStream;
 	cudaStreamCreate(&stream);
@@ -143,7 +145,7 @@ int main(int argc, char** argv)
 
 	// Главный алгоритм 
 	clock_t begin = clock();
-	while((iter < maxIter) && error > minError)
+	while((iter < maxIter) && (*error) > minError)
 	{
 		iter++;
 
@@ -155,26 +157,31 @@ int main(int argc, char** argv)
 		{
 			getErrorMatrix<<<blocks_x * blocks_y, threads_x, 0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix, size);
 			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, sizeOfAllocatedMemory);
-			cudaMemcpyAsync(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, stream);
-
+			
+			cudaStreamSynchronize(stream);
+			
 			// Находим максимальную ошибку среди всех и передаём её всем процессам
-			MPI_Allreduce((void*)&error,(void*)&error, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+			MPI_Allreduce((void*)deviceError, (void*)deviceError, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+			cudaMemcpyAsync(error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, stream);
 		}
+
+		cudaStreamSynchronize(stream);
 		
 		// Обмен "граничными" условиями каждой области
 		// Обмен верхней границей
 		if (rank != 0)
 		{
-            MPI_Sendrecv(deviceMatrixBPtr + size + 1, size - 2, MPI_DOUBLE, rank - 1, 0, 
-                deviceMatrixBPtr + 1, size - 2, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		    MPI_Sendrecv(deviceMatrixBPtr + size + 1, size - 2, MPI_DOUBLE, rank - 1, 0, 
+			deviceMatrixBPtr + 1, size - 2, MPI_DOUBLE, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		}
 		// Обмен нижней границей
 		if (rank != sizeOfTheGroup - 1)
 		{
-            MPI_Sendrecv(deviceMatrixBPtr + (sizeOfAreaForOneProcess - 2) * size + 1, 
-				size - 2, MPI_DOUBLE, rank + 1, 0,
-                deviceMatrixBPtr + (sizeOfAreaForOneProcess - 1) * size + 1, 
-				size - 2, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		    MPI_Sendrecv(deviceMatrixBPtr + (sizeOfAreaForOneProcess - 2) * size + 1, 
+					size - 2, MPI_DOUBLE, rank + 1, 0,
+			deviceMatrixBPtr + (sizeOfAreaForOneProcess - 1) * size + 1, 
+					size - 2, MPI_DOUBLE, rank + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		}
 
 		// Обмен указателей
@@ -185,7 +192,7 @@ int main(int argc, char** argv)
 	if (rank == 0)
 	{
 		std::cout << "Time: " << 1.0 * (end - begin) / CLOCKS_PER_SEC << std::endl;
-		std::cout << "Iter: " << iter << " Error: " << error << std::endl;
+		std::cout << "Iter: " << iter << " Error: " << *error << std::endl;
 	}
 
 	// Высвобождение памяти
