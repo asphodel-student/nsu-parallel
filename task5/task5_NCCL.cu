@@ -49,7 +49,7 @@ int main(int argc, char** argv)
 
 	cudaSetDevice(rank);
 
-       	// Получаем значения из командной строки
+    // Получаем значения из командной строки
 	const double minError = std::pow(10, -std::stoi(argv[1]));
 	const int size = std::stoi(argv[2]);
 	const int maxIter = std::stoi(argv[3]);
@@ -63,14 +63,17 @@ int main(int argc, char** argv)
 		"Grid size: " << size << std::endl;
 	}
 
-    if (rank!=0)
+    if (rank != 0)
         cudaDeviceEnablePeerAccess(rank - 1, 0);
-    if (rank!=sizeOfTheGroup-1)
+    if (rank != sizeOfTheGroup - 1)
         cudaDeviceEnablePeerAccess(rank + 1, 0);
 
     ncclUniqueId id;
     ncclComm_t comm;
-    if (rank == 0) ncclGetUniqueId(&id);
+    if (rank == 0) 
+	{
+		ncclGetUniqueId(&id);
+	}
     MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
     ncclCommInitRank(&comm, sizeOfTheGroup, id, rank);
 
@@ -79,8 +82,9 @@ int main(int argc, char** argv)
 	size_t startYIdx = sizeOfAreaForOneProcess * rank;
 
 	// Выделение памяти на хосте
-	double* matrixA = new double[totalSize];
-	double* matrixB = new double[totalSize];
+	double* matrixA, *matrixB;
+    cudaMallocHost(&matrixA, sizeof(double) * totalSize);
+    cudaMallocHost(&matrixB, sizeof(double) * totalSize);
 
 	std::memset(matrixA, 0, size * size * sizeof(double));
 
@@ -132,7 +136,9 @@ int main(int argc, char** argv)
 	cudaMalloc((void**)&tempStorage, tempStorageSize);
 
 	int iter = 0; 
-	double error = 1.0;
+	double* error;
+	cudaMallocHost(&error, sizeof(double));
+	*error = 1.0;
 
     unsigned int threads_x = (size < 1024) ? size : 1024;
     unsigned int blocks_y = sizeOfAreaForOneProcess;
@@ -147,7 +153,7 @@ int main(int argc, char** argv)
 
 	// Главный алгоритм 
 	clock_t begin = clock();
-	while(iter < maxIter && error > minError)
+	while(iter < maxIter && (*error) > minError)
 	{
 		iter++;
 
@@ -157,16 +163,16 @@ int main(int argc, char** argv)
 		// Расчитываем ошибку каждую сотую итерацию
 		if (iter % 100 == 0)
 		{
-			getErrorMatrix<<<blocks_x * blocks_y, threads_x,  0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix, size);
-            //cudaStreamSynchronize(stream);
+			getErrorMatrix<<<blocks_x * blocks_y, threads_x, 0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix, size);
 			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, sizeOfAllocatedMemory, stream);
-
-            ncclGroupStart();
+            
             ncclAllReduce((void*)deviceError, (void*)deviceError, 1, ncclDouble, ncclMax, comm, stream);
-            ncclGroupEnd();
 
-            cudaMemcpyAsync(&error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, stream);
+            cudaMemcpyAsync(error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, stream);
         }
+
+		cudaStreamSynchronize(stream);
+
 		
 		// Обмен "граничными" условиями каждой области
 		// Обмен верхней границей
@@ -195,7 +201,7 @@ int main(int argc, char** argv)
 	if (rank == 0)
 	{
 		std::cout << "Time: " << 1.0 * (end - begin) / CLOCKS_PER_SEC << std::endl;
-		std::cout << "Iter: " << iter << " Error: " << error << std::endl;
+		std::cout << "Iter: " << iter << " Error: " << *error << std::endl;
 	}
 
 	// Высвобождение памяти
@@ -203,9 +209,8 @@ int main(int argc, char** argv)
 	cudaFree(deviceMatrixBPtr);
 	cudaFree(errorMatrix);
 	cudaFree(tempStorage);
-
-	delete[] matrixA;
-	delete[] matrixB;
+	cudaFree(matrixA);
+	cudaFree(matrixB);
 
 	MPI_Finalize();
 
