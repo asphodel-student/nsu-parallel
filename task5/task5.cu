@@ -243,17 +243,17 @@ int main(int argc, char** argv)
 		// Расчитываем ошибку каждую сотую итерацию
 		if (iter % 100 == 0)
 		{
-			getErrorMatrix<<<gridDim, blockDim, 0, stream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix,
+			getErrorMatrix<<<gridDim, blockDim, 0, matrixCalculationStream>>>(deviceMatrixAPtr, deviceMatrixBPtr, errorMatrix,
 															size, sizeOfAreaForOneProcess);
 
-			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, sizeOfAllocatedMemory, stream);
+			cub::DeviceReduce::Max(tempStorage, tempStorageSize, errorMatrix, deviceError, sizeOfAllocatedMemory, matrixCalculationStream);
 			
-			GET_CUDA_STATUS(cudaStreamSynchronize(stream));
+			GET_CUDA_STATUS(cudaStreamSynchronize(matrixCalculationStream));
 			
 			// Находим максимальную ошибку среди всех и передаём её всем процессам
 			GET_MPI_STATUS(MPI_Allreduce((void*)deviceError, (void*)deviceError, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD));
 
-			GET_CUDA_STATUS(cudaMemcpyAsync(error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, stream));
+			GET_CUDA_STATUS(cudaMemcpyAsync(error, deviceError, sizeof(double), cudaMemcpyDeviceToHost, matrixCalculationStream));
 		}
 		
 		// Обмен "граничными" условиями каждой области
