@@ -99,6 +99,13 @@ void getErrorMatrix(double* matrixA, double* matrixB, double* outputMatrix, size
 	}
 }
 
+int findNearestPowerOfTwo(size_t num) {
+    int power = 1;
+    while (power < num) {
+        power <<= 1;
+    }
+    return power;
+}
 
 int main(int argc, char** argv)
 {
@@ -120,12 +127,6 @@ int main(int argc, char** argv)
 	const int size = std::stoi(argv[2]);
 	const int maxIter = std::stoi(argv[3]);
 	const size_t totalSize = size * size;
-
-	if (size % 2 != 0)
-	{
-		std::cout << "Size of grid should be even!" << std::endl;
-		std::exit(-1);
-	}
 
 	int rank, sizeOfTheGroup;
     GET_MPI_STATUS(MPI_Init(&argc, &argv));
@@ -189,13 +190,6 @@ int main(int argc, char** argv)
 
 	size_t sizeOfAllocatedMemory = size * sizeOfAreaForOneProcess;
 
-    unsigned int threads_x = std::min(size, 1024);
-    unsigned int blocks_y = sizeOfAreaForOneProcess;
-    unsigned int blocks_x = size / threads_x;
-
-    dim3 blockDim(threads_x, 1);
-    dim3 gridDim(blocks_x, blocks_y);
-
 	// Выделяем память на девайсе
 	GET_CUDA_STATUS(cudaMalloc((void**)&deviceMatrixAPtr, sizeOfAllocatedMemory * sizeof(double)));
 	GET_CUDA_STATUS(cudaMalloc((void**)&deviceMatrixBPtr, sizeOfAllocatedMemory * sizeof(double)));
@@ -221,6 +215,14 @@ int main(int argc, char** argv)
 	cudaStream_t stream, matrixCalculationStream;
 	GET_CUDA_STATUS(cudaStreamCreate(&stream));
 	GET_CUDA_STATUS(cudaStreamCreate(&matrixCalculationStream));
+
+	unsigned int threads_x = std::min(findNearestPowerOfTwo(size), 1024);
+    unsigned int blocks_y = sizeOfAreaForOneProcess;
+    unsigned int blocks_x = size / threads_x;
+
+    dim3 blockDim(threads_x, 1);
+    dim3 gridDim(blocks_x, blocks_y);
+
 
 	int iter = 0; 
 	
