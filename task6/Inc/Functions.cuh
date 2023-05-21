@@ -1,4 +1,5 @@
 #pragma once
 
-__global__
-void sigmoid(float* data, size_t size);
+// Host function to call the sigmoid kernel
+__host__
+void sigmoid(float* data, int size);

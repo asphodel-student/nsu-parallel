@@ -2,6 +2,7 @@
 
 #include <cublas_v2.h>
 
+// Function for getting cublas error
 static const char *_cudaGetErrorEnum(cublasStatus_t error)
 {
     switch (error)
