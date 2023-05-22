@@ -1,4 +1,5 @@
 #include <iostream>
+#include <vector>
 #include <memory>
 
 #include "../Inc/FCLayer.cuh"
@@ -9,12 +10,12 @@ class Network
 {
 public:
     // Constructor that initializes the network 
-    Network(cublasHandle_t handle)
+    Network(cublasHandle_t handle, std::vector<LinearArguments>& args)
     {
         // Create three fully connected layers with specified input and output sizes
-        this->fc1 = std::make_unique<Linear>(handle, "../task6/Weights/weights1", 32 * 32, 16 * 16);
-        this->fc2 = std::make_unique<Linear>(handle, "../task6/Weights/weights2", 16 * 16, 4 * 4);
-        this->fc3 = std::make_unique<Linear>(handle, "../task6/Weights/weights3", 4 * 4, 1);
+        this->fc1 = std::make_unique<Linear>(handle, args[0]);
+        this->fc2 = std::make_unique<Linear>(handle, args[1]);
+        this->fc3 = std::make_unique<Linear>(handle, args[2]);
     }
 
     ~Network() = default;
@@ -62,8 +63,16 @@ int main()
     cudaMalloc(&devInput, sizeof(float) * 32 * 32);
     cudaMemcpy(devInput, input, sizeof(float) * 32 * 32, cudaMemcpyHostToDevice);
 
+    // Setting parameters for the network
+    std::vector<LinearArguments> parameters = 
+    {
+        LinearArguments("../task6/Weights/weights1", 32 * 32, 16 * 16), 
+        LinearArguments("../task6/Weights/weights2", 16 * 16, 4 * 4), 
+        LinearArguments("../task6/Weights/weights3", 4 * 4, 1) 
+    };
+
     // Creating an instance of our "network"
-    Network* net =  new Network(handle);
+    Network* net =  new Network(handle, parameters);
 
     // Forward pass
     float out = 0.0;
